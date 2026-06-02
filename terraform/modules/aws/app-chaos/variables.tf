@@ -6,7 +6,17 @@ variable "platform" { type = any }
 variable "tags" { type = map(string) }
 
 variable "create_aws_iam" { type = bool }
-variable "control_account_id" { type = string }
+
+variable "source_account_id" {
+  description = "AWS account hosting the control EKS cluster and HarnessDelegateRole."
+  type        = string
+}
+
+variable "target_account_id" {
+  description = "AWS account where ChaosExecutionRole is created."
+  type        = string
+}
+
 variable "oidc_provider_arn" { type = string }
 variable "oidc_issuer_host" { type = string }
 

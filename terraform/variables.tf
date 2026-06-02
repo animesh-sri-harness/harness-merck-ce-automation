@@ -36,27 +36,21 @@ variable "platform" {
   description = "Shared platform naming for AWS/K8s chaos resources."
   type = object({
     chaos_namespace_prefix         = string
-    chaos_control_namespace        = string
     rbac_resource_group            = string
     harness_delegate_iam_role_name = string
     chaos_execution_iam_role_name  = string
     chaos_allowed_tag_key          = string
     chaos_allowed_tag_value        = string
     aws_resource_prefix            = optional(string, "")
-    eks_cluster_iam_role_name      = optional(string, "")
-    eks_node_iam_role_name         = optional(string, "")
   })
   default = {
     chaos_namespace_prefix         = "merck-chaos"
-    chaos_control_namespace        = "merck-chaos-control"
     rbac_resource_group            = "_all_project_level_resources"
     harness_delegate_iam_role_name = "HarnessDelegateRole"
     chaos_execution_iam_role_name  = "ChaosExecutionRole"
     chaos_allowed_tag_key          = "Chaos"
     chaos_allowed_tag_value        = "allowed"
     aws_resource_prefix            = "merck-chaos"
-    eks_cluster_iam_role_name      = "merck-poc-chaos-eks-role"
-    eks_node_iam_role_name         = "merck-poc-chaos-node-role"
   }
 }
 
@@ -110,59 +104,57 @@ variable "aws_session_token" {
   default   = null
 }
 
+variable "create_harness_org" {
+  description = "Create a new Harness organization. Set false when using an existing org."
+  type        = bool
+  default     = false
+}
+
+variable "harness_org_id" {
+  description = "Existing Harness org identifier (required when create_harness_org is false)."
+  type        = string
+  default     = ""
+}
+
+variable "source_account_id" {
+  description = "Default AWS account ID for control EKS clusters and HarnessDelegateRole. Per-environment source_account_id overrides this."
+  type        = string
+  default     = ""
+}
+
+variable "default_target_account_id" {
+  description = "Default AWS account ID for ChaosExecutionRole (target). Required per environment via target_account_id or this default when create_aws_iam is true."
+  type        = string
+  default     = ""
+}
+
+variable "aws_deploy_assume_role_arns" {
+  description = "Optional IAM role ARNs for Terraform to assume when creating resources in source/target accounts (dev/uat/prod)."
+  type = object({
+    source = optional(object({
+      dev  = optional(string, "")
+      uat  = optional(string, "")
+      prod = optional(string, "")
+    }), {})
+    target = optional(object({
+      dev  = optional(string, "")
+      uat  = optional(string, "")
+      prod = optional(string, "")
+    }), {})
+  })
+  default = {}
+}
+
 variable "control_account_id" {
-  type    = string
-  default = ""
+  description = "Deprecated: use source_account_id."
+  type        = string
+  default     = ""
 }
 
-variable "vpc_cidr" {
-  type    = string
-  default = "10.42.0.0/16"
-}
-
-variable "eks_cluster_name" {
-  type    = string
-  default = "merck-poc-chaos-control-cluster"
-}
-
-variable "eks_cluster_version" {
-  type    = string
-  default = "1.31"
-}
-
-variable "eks_node_instance_type" {
-  type    = string
-  default = "t3.large"
-}
-
-variable "eks_node_desired_size" {
-  type    = number
-  default = 1
-}
-
-variable "eks_node_min_size" {
-  type    = number
-  default = 1
-}
-
-variable "eks_node_max_size" {
-  type    = number
-  default = 2
-}
-
-variable "install_delegates" {
-  type    = bool
-  default = true
-}
-
-variable "delegate_namespace_prefix" {
-  type    = string
-  default = "harness-delegate"
-}
-
-variable "delegate_image" {
-  type    = string
-  default = "us-docker.pkg.dev/gar-prod-setup/harness-public/harness/delegate:26.05.89101"
+variable "create_delegate_tokens" {
+  description = "Create Harness delegate tokens (only required when Terraform installs delegates)."
+  type        = bool
+  default     = false
 }
 
 variable "create_aws_iam" {

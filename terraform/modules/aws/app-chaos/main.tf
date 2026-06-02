@@ -5,12 +5,21 @@ locals {
   k8s_rbac_name = var.legacy_resource_naming ? "chaos-executor-${var.env_key}" : "chaos-executor-${local.slug_k8s}-${var.env_key}"
 
   assume_target_policy_name = var.legacy_resource_naming ? "assume-target-${var.env_key}" : "assume-target-${var.iam_role_suffix}"
+
+  delegate_role_name  = "${var.platform.harness_delegate_iam_role_name}-${var.iam_role_suffix}"
+  execution_role_name = "${var.platform.chaos_execution_iam_role_name}-${var.iam_role_suffix}"
+
+  # Predictable ARNs avoid circular dependencies between source and target accounts.
+  delegate_role_arn  = "arn:aws:iam::${var.source_account_id}:role/${local.delegate_role_name}"
+  execution_role_arn = "arn:aws:iam::${var.target_account_id}:role/${local.execution_role_name}"
 }
 
+# Source account (control EKS): IRSA role for chaos pods running on the env delegate cluster.
 resource "aws_iam_role" "harness_control" {
-  count = var.create_aws_iam && var.env.enable_chaos ? 1 : 0
+  provider = aws.source
+  count    = var.create_aws_iam && var.env.enable_chaos ? 1 : 0
 
-  name = "${var.platform.harness_delegate_iam_role_name}-${var.iam_role_suffix}"
+  name = local.delegate_role_name
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -30,33 +39,13 @@ resource "aws_iam_role" "harness_control" {
   tags = merge(var.tags, {
     Application = var.app_slug
     Environment = var.env_key
-  })
-}
-
-resource "aws_iam_role" "harness_target" {
-  count = var.create_aws_iam ? 1 : 0
-
-  name = "${var.platform.chaos_execution_iam_role_name}-${var.iam_role_suffix}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        AWS = var.create_aws_iam && var.env.enable_chaos ? aws_iam_role.harness_control[0].arn : "arn:aws:iam::${var.control_account_id}:root"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-
-  tags = merge(var.tags, {
-    Application = var.app_slug
-    Environment = var.env_key
+    AccountRole = "source-control"
   })
 }
 
 resource "aws_iam_role_policy" "harness_control_assume_target" {
-  count = var.create_aws_iam && var.env.enable_chaos ? 1 : 0
+  provider = aws.source
+  count    = var.create_aws_iam && var.env.enable_chaos ? 1 : 0
 
   name = local.assume_target_policy_name
   role = aws_iam_role.harness_control[0].id
@@ -66,13 +55,39 @@ resource "aws_iam_role_policy" "harness_control_assume_target" {
     Statement = [{
       Effect   = "Allow"
       Action   = "sts:AssumeRole"
-      Resource = aws_iam_role.harness_target[0].arn
+      Resource = local.execution_role_arn
     }]
   })
 }
 
+# Target account: role assumed by HarnessDelegateRole to run tag-gated chaos faults.
+resource "aws_iam_role" "harness_target" {
+  provider = aws.target
+  count    = var.create_aws_iam ? 1 : 0
+
+  name = local.execution_role_name
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        AWS = var.env.enable_chaos ? local.delegate_role_arn : "arn:aws:iam::${var.source_account_id}:root"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  tags = merge(var.tags, {
+    Application = var.app_slug
+    Environment = var.env_key
+    AccountRole = "target-execution"
+  })
+}
+
 resource "aws_iam_role_policy" "harness_target_chaos" {
-  count = var.create_aws_iam ? 1 : 0
+  provider = aws.target
+  count    = var.create_aws_iam ? 1 : 0
 
   name = "chaos-tag-gated-faults"
   role = aws_iam_role.harness_target[0].id
@@ -136,62 +151,4 @@ resource "aws_iam_role_policy" "harness_target_chaos" {
       },
     ]
   })
-}
-
-resource "kubernetes_service_account" "chaos_executor" {
-  count = var.env.enable_chaos ? 1 : 0
-
-  metadata {
-    name      = local.ksa_name
-    namespace = var.env.k8s_namespace
-    annotations = var.create_aws_iam && var.env.enable_chaos ? {
-      "eks.amazonaws.com/role-arn" = aws_iam_role.harness_control[0].arn
-    } : {}
-    labels = {
-      "merck.harness.io/app"         = var.app_slug
-      "merck.harness.io/environment" = var.env_key
-    }
-  }
-}
-
-resource "kubernetes_role" "chaos_executor" {
-  count = var.env.enable_chaos ? 1 : 0
-
-  metadata {
-    name      = local.k8s_rbac_name
-    namespace = var.env.k8s_namespace
-  }
-
-  rule {
-    api_groups = [""]
-    resources  = ["pods", "events"]
-    verbs      = ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
-  }
-
-  rule {
-    api_groups = ["apps"]
-    resources  = ["deployments", "replicasets", "statefulsets", "daemonsets"]
-    verbs      = ["get", "list", "watch"]
-  }
-}
-
-resource "kubernetes_role_binding" "chaos_executor" {
-  count = var.env.enable_chaos ? 1 : 0
-
-  metadata {
-    name      = local.k8s_rbac_name
-    namespace = var.env.k8s_namespace
-  }
-
-  role_ref {
-    api_group = "rbac.authorization.k8s.io"
-    kind      = "Role"
-    name      = kubernetes_role.chaos_executor[0].metadata[0].name
-  }
-
-  subject {
-    kind      = "ServiceAccount"
-    name      = kubernetes_service_account.chaos_executor[0].metadata[0].name
-    namespace = var.env.k8s_namespace
-  }
 }

@@ -1,8 +1,10 @@
 output "org_id" {
-  value = harness_platform_organization.this.id
+  value = var.create_org ? harness_platform_organization.this[0].id : var.existing_org_id
 }
 
 output "delegate_tokens" {
-  value     = { for k, v in harness_platform_delegatetoken.env : k => v.value }
+  value = var.create_delegate_tokens ? {
+    for k, v in harness_platform_delegatetoken.env : k => v.value
+  } : {}
   sensitive = true
 }
