@@ -19,9 +19,8 @@ Modular Terraform for Merck's chaos engineering TSA architecture: Harness org/pr
 └── terraform/
     ├── applications.tf          ← Harness projects (App A, B, …)
     ├── environments.tf          ← dev / uat / prod / staging
-    ├── platform.tf              ← Org name, tags, IAM/K8s naming
     ├── main.tf
-    ├── variables.tf             ← Secrets and feature flags
+    ├── variables.tf             ← Secrets, feature flags, org/platform defaults
     ├── locals.tf
     ├── outputs.tf
     ├── providers.tf
@@ -60,8 +59,8 @@ terraform apply -var-file=terraform.tfvars
 |------|---------|
 | `applications.tf` | Harness projects, RBAC groups, demo EC2 |
 | `environments.tf` | Deployment environments |
-| `platform.tf` | Org identifier, AWS tags, IAM role names, ChaosGuard fault list |
-| `terraform.tfvars` | Secrets, EKS sizing, feature flags (gitignored) |
+| `variables.tf` | Org/platform defaults, feature flags (override via `terraform.tfvars`) |
+| `terraform.tfvars` | Secrets and EKS sizing (gitignored) |
 
 ### Add an environment
 
@@ -95,7 +94,7 @@ app_b = {
 
 ### Platform settings
 
-Edit `terraform/platform.tf` for org-wide defaults: `org`, `platform`, `default_tags`, and `chaos_guard_destructive_faults`.
+Edit defaults in `terraform/variables.tf` for `org`, `platform`, `default_tags`, and `chaos_guard_destructive_faults`, or override in `terraform.tfvars`.
 
 ## Architecture
 
@@ -149,5 +148,5 @@ Environments with `chaos_guard_block = true` in `environments.tf` are included i
 | AWS SSO expired | `aws sso login --profile <profile>` then `export AWS_PROFILE=<profile>` |
 | Kubernetes unreachable during plan | Ensure SSO is active; cluster endpoint must be reachable |
 | ChaosGuard apply fails | Set `create_chaos_guard = false` and configure in Harness UI |
-| AWS faults blocked | Tag targets with `Chaos=allowed` (or values from `platform.tf`) |
+| AWS faults blocked | Tag targets with `Chaos=allowed` (or values from `variables.tf`) |
 | RBAC groups empty | Add emails to `admin_emails` / `dev_emails` in `applications.tf` |

@@ -147,7 +147,7 @@ output "post_apply_checklist" {
     1. aws sso login --profile ${var.aws_profile}
     2. terraform output configure_kubectl
     3. Harness → Org ${var.org.name} → Delegates: verify Connected
-    4. Edit applications.tf, environments.tf, or platform.tf to add apps/envs
+    4. Edit applications.tf or environments.tf to add apps/envs
     5. Demo EC2: terraform output chaos_demo_ec2
     6. EC2 demo steps: terraform output ec2_chaos_demo_steps
   EOT
