@@ -2,9 +2,16 @@
 terraform/.terraform/
 terraform/*.tfstate
 terraform/*.tfstate.*
+terraform/.terraform.tfstate.lock.info
 terraform/tfplan
+terraform/*.plan
 terraform/terraform.tfvars
 terraform/*.auto.tfvars
+terraform/crash.log
+terraform/override.tf
+terraform/override.tf.json
+terraform/*_override.tf
+terraform/*_override.tf.json
 
 # OS / IDE
 .DS_Store

@@ -1,44 +1,17 @@
-# Copy to terraform.tfvars (gitignored) and fill in secrets.
-
 harness_account_id       = "uZuUmmrnT4qQRx5XF0ZtkQ"
 harness_platform_api_key = "pat.xxxxx"
 
-# AWS play account – use env vars or profile instead of static keys when possible.
 aws_region  = "us-east-1"
-aws_profile = "harness-impeng-play"  # aws sso login --profile harness-impeng-play
-# control_account_id = ""  # leave empty to auto-detect from caller identity
+aws_profile = "harness-impeng-play"
 
-# Control EKS (created by Terraform – no pre-existing cluster required)
-eks_cluster_name        = "merck-poc-chaos-control-cluster"
-eks_cluster_version     = "1.31"
-eks_node_instance_type  = "t3.large"
-eks_node_desired_size   = 1
+eks_cluster_name       = "merck-poc-chaos-control-cluster"
+eks_cluster_version    = "1.31"
+eks_node_instance_type = "t3.large"
+eks_node_desired_size  = 3
+eks_node_min_size      = 1
+eks_node_max_size      = 3
 
-# aws_access_key_id     = ""  # only if aws_profile = ""
-# aws_secret_access_key = ""
-# aws_session_token     = ""
-
-# POC: all targets in same account. Production Merck: separate account IDs per env.
-target_account_ids = {
-  dev  = "664418987337"
-  uat  = "664418987337"
-  prod = "664418987337"
-}
-
-# AWS IAM role naming (Merck TSA)
-harness_delegate_iam_role_name  = "HarnessDelegateRole"
-chaos_execution_iam_role_name   = "ChaosExecutionRole"
-create_aws_iam       = true
-create_chaos_demo_ec2 = true
-create_rbac          = true
-create_chaos_guard = false  # Harness Terraform API returns internal error; configure in UI (see chaos_guard_manual_steps output)
-
-# Dummy POC users mimicking Merck RBAC (replace with real Harness user emails)
-app_a_admin_emails = [
-  "merck.app-a.admin@example.com",
-  "harness.delegate.admin@merck.poc",
-]
-app_a_dev_emails = [
-  "merck.app-a.dev@example.com",
-  "chaos.execution.user@merck.poc",
-]
+install_delegates  = true
+create_aws_iam     = true
+create_rbac        = true
+create_chaos_guard = false

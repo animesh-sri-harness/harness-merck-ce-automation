@@ -1,126 +1,153 @@
-# Merck Chaos Engineering POC – Terraform Automation
+# Merck Chaos Engineering – Terraform Automation
 
-Terraform POC for Merck's chaos engineering TSA architecture: Harness org/project/RBAC, per-env delegates, control EKS, IRSA role chain, and a tagged demo EC2 target.
-
-## Architecture
-
-```
-Harness (Org Merck / Project App A)
-  ├── Delegates: merck-delegate-dev | uat | prod
-  ├── RBAC: App A Admin → HarnessDelegateRole, App A Dev → ChaosExecutionRole
-  ├── Environments + infra: dev / uat / prod
-  └── ChaosGuard: block destructive faults in UAT/Prod (manual UI step)
-
-AWS Control Account (664418987337 – play account for POC)
-  ├── EKS: merck-poc-chaos-control-cluster
-  ├── IRSA: ksa-app-a-{env} → HarnessDelegateRole-{env}
-  ├── STS:  HarnessDelegateRole-{env} → ChaosExecutionRole-{env}
-  └── Demo EC2: merck-chaos-demo-dev (tag Chaos=allowed)
-```
-
-In production Merck uses **separate AWS accounts** per environment. This POC collapses them into one account but keeps the **same role names and AssumeRole chain**.
+Modular Terraform for Merck's chaos engineering TSA architecture: Harness org/project/RBAC, per-environment delegates, control EKS, IRSA credential chain, and optional demo workloads.
 
 ## Prerequisites
 
-- Terraform >= 1.5
-- AWS CLI with SSO profile `harness-impeng-play` (or update `aws_profile` in tfvars)
-- Harness Platform API key (Account Admin)
-- `kubectl` (optional, for verification)
+| Requirement | Notes |
+|-------------|-------|
+| Terraform | `>= 1.5.0` |
+| AWS access | SSO profile or static credentials |
+| Harness | Platform API key (PAT) with org/project permissions |
+| Tools | `aws` CLI, `kubectl` (post-deploy verification) |
+
+## Repository layout
+
+```
+.
+├── README.md
+└── terraform/
+    ├── applications.tf          ← Harness projects (App A, B, …)
+    ├── environments.tf          ← dev / uat / prod / staging
+    ├── platform.tf              ← Org name, tags, IAM/K8s naming
+    ├── main.tf
+    ├── variables.tf             ← Secrets and feature flags
+    ├── locals.tf
+    ├── outputs.tf
+    ├── providers.tf
+    ├── versions.tf
+    ├── modules/
+    │   ├── harness/
+    │   │   ├── org/
+    │   │   └── application/
+    │   └── aws/
+    │       ├── control-plane/
+    │       ├── delegate/
+    │       ├── chaos-platform/
+    │       ├── app-chaos/
+    │       └── demo-workload/
+    └── terraform.tfvars.example
+```
 
 ## Quick start
 
 ```bash
-# 1. AWS SSO
 aws sso login --profile harness-impeng-play
 export AWS_PROFILE=harness-impeng-play
-export AWS_REGION=us-east-1
 
-# 2. Configure secrets
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
-# Edit terraform.tfvars: set harness_platform_api_key
+# Set harness_platform_api_key in terraform.tfvars
 
-# 3. Deploy
 cd terraform
 terraform init
+terraform plan -var-file=terraform.tfvars
 terraform apply -var-file=terraform.tfvars
-
-# 4. Verify
-terraform output merck_tsa_compliance
-terraform output chaos_demo_ec2
-terraform output ec2_chaos_demo_steps
-terraform output configure_kubectl
 ```
 
-## What Terraform creates
+## Configuration
 
-| Layer | Resources |
-|-------|-----------|
-| **Harness** | Org Merck, Project App A, 3 envs/infra, 3 delegates, chaos infra, RBAC, AWS/K8s connectors |
-| **AWS network** | VPC, public subnets |
-| **AWS EKS** | Control cluster + 3-node group |
-| **AWS IAM** | HarnessDelegateRole-{dev,uat,prod}, ChaosExecutionRole-{dev,uat,prod} |
-| **AWS EC2** | Demo target `merck-chaos-demo-dev` (Chaos=allowed) |
-| **Kubernetes** | Namespaces, KSAs with IRSA, chaos executor RBAC |
+| File | Purpose |
+|------|---------|
+| `applications.tf` | Harness projects, RBAC groups, demo EC2 |
+| `environments.tf` | Deployment environments |
+| `platform.tf` | Org identifier, AWS tags, IAM role names, ChaosGuard fault list |
+| `terraform.tfvars` | Secrets, EKS sizing, feature flags (gitignored) |
 
-## Sample chaos experiments
+### Add an environment
 
-### EC2 stop (AWS fault)
+Edit `terraform/environments.tf`:
 
-See `terraform output ec2_chaos_demo_steps`. Summary:
+```hcl
+staging = {
+  harness_type      = "PreProduction"
+  enable_chaos      = true
+  chaos_guard_block = true
+}
+```
 
-1. Project App A → Chaos → New Experiment
-2. Environment: **DEV**, Infrastructure: **infra_dev**
-3. Fault: **EC2 Stop By ID**, connector: **aws_dev**, region: **us-east-1**
-4. Instance: output from `terraform output chaos_demo_ec2`
+Run `terraform apply`. This provisions a delegate, Harness env/infra, IAM roles, and KSA for every application.
 
-### Pod delete (Kubernetes fault)
+### Add an application
 
-1. Deploy a test pod: `kubectl run demo-nginx -n merck-chaos-dev --image=nginx`
-2. Environment: **DEV**, Infrastructure: **infra_dev**
-3. Fault: **Pod Delete** in namespace `merck-chaos-dev`
+Edit `terraform/applications.tf`:
 
-## Demonstrating AssumeRole in a single account
+```hcl
+app_b = {
+  name             = "App B"
+  slug             = "app_b"
+  admin_group_name = "App B Admin"
+  dev_group_name   = "App B Dev"
+  admin_emails     = ["admin@example.com"]
+  dev_emails       = ["dev@example.com"]
+  create_demo_ec2  = false
+}
+```
 
-CloudTrail shows the full chain even without cross-account IDs:
+### Platform settings
 
-1. `AssumeRoleWithWebIdentity` → HarnessDelegateRole-dev (IRSA from KSA)
-2. `AssumeRole` → ChaosExecutionRole-dev
-3. `StopInstances` on tagged EC2
+Edit `terraform/platform.tf` for org-wide defaults: `org`, `platform`, `default_tags`, and `chaos_guard_destructive_faults`.
 
-See IAM trust policies on both roles in the AWS console.
+## Architecture
 
-## Key variables
+| Layer | Scope | Module |
+|-------|-------|--------|
+| Harness org + delegates | Shared | `harness/org`, `aws/control-plane` |
+| Harness project + chaos | Per app | `harness/application` |
+| K8s namespaces | Per env | `aws/chaos-platform` |
+| IAM + KSA + K8s RBAC | Per app × env | `aws/app-chaos` |
+| Demo EC2 | Per app (optional) | `aws/demo-workload` |
+
+**Credential chain:** KSA → `HarnessDelegateRole-{suffix}` → `ChaosExecutionRole-{suffix}` → tag-gated AWS faults (`Chaos=allowed`).
+
+With one application, IAM suffix is `{env}`. With multiple applications, suffix becomes `{app_slug}-{env}`.
+
+## Feature flags
+
+Set in `terraform.tfvars`:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `aws_profile` | `harness-impeng-play` | SSO profile (no static keys needed) |
-| `harness_delegate_iam_role_name` | `HarnessDelegateRole` | Control / IRSA role base name |
-| `chaos_execution_iam_role_name` | `ChaosExecutionRole` | Target execution role base name |
-| `create_chaos_demo_ec2` | `true` | Provision tagged demo EC2 |
-| `create_chaos_guard` | `false` | Harness API often fails; configure in UI |
+| `install_delegates` | `true` | Helm-deploy Harness delegates on control EKS |
+| `create_aws_iam` | `true` | IRSA roles and tag-gated chaos policies |
+| `create_rbac` | `true` | Harness user groups and role assignments |
+| `create_chaos_guard` | `false` | ChaosGuard block rules (Harness API may fail) |
 
-## Files
-
-```
-terraform/
-  aws_eks.tf              # Control EKS cluster
-  aws_network.tf          # VPC
-  aws_iam.tf              # HarnessDelegateRole + ChaosExecutionRole chain
-  aws_kubernetes.tf       # KSAs, namespaces, K8s RBAC
-  aws_chaos_workload.tf   # Demo EC2 target
-  harness_*.tf            # Harness org, envs, delegates, chaos, RBAC
-  delegates_helm.tf       # Helm delegate installs
-  providers.tf            # AWS SSO profile + EKS exec auth
-  variables.tf
-  outputs.tf
-  terraform.tfvars.example
-```
-
-## Cleanup
+## Key outputs
 
 ```bash
-cd terraform
-terraform destroy -var-file=terraform.tfvars
+terraform output applications_configured
+terraform output environments_configured
+terraform output merck_tsa_compliance
+terraform output configure_kubectl
+terraform output chaos_demo_ec2
+terraform output ec2_chaos_demo_steps
+terraform output harness_target_role_arns
 ```
 
-Or set `create_chaos_demo_ec2 = false` to remove only the demo EC2.
+## ChaosGuard
+
+```bash
+terraform apply -var-file=terraform.tfvars -var="create_chaos_guard=true"
+```
+
+Environments with `chaos_guard_block = true` in `environments.tf` are included in the block rule. If the Harness API returns an internal error, configure rules manually in **Project → Chaos → Security Governance**.
+
+## Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| AWS SSO expired | `aws sso login --profile <profile>` then `export AWS_PROFILE=<profile>` |
+| Kubernetes unreachable during plan | Ensure SSO is active; cluster endpoint must be reachable |
+| ChaosGuard apply fails | Set `create_chaos_guard = false` and configure in Harness UI |
+| AWS faults blocked | Tag targets with `Chaos=allowed` (or values from `platform.tf`) |
+| RBAC groups empty | Add emails to `admin_emails` / `dev_emails` in `applications.tf` |

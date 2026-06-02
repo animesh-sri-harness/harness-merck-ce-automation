@@ -5,9 +5,8 @@ provider "harness" {
 }
 
 provider "aws" {
-  region  = var.aws_region
-  profile = var.aws_profile != "" ? var.aws_profile : null
-  # Static keys only when no SSO profile is configured.
+  region     = var.aws_region
+  profile    = var.aws_profile != "" ? var.aws_profile : null
   access_key = var.aws_profile == "" ? var.aws_access_key_id : null
   secret_key = var.aws_profile == "" ? var.aws_secret_access_key : null
   token      = var.aws_profile == "" ? var.aws_session_token : null
@@ -27,14 +26,14 @@ locals {
   )
 
   eks_get_token_args = concat(
-    ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", var.aws_region],
+    ["eks", "get-token", "--cluster-name", module.control_plane.cluster_name, "--region", var.aws_region],
     local.aws_cli_profile_args,
   )
 }
 
 provider "kubernetes" {
-  host                   = module.eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+  host                   = module.control_plane.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.control_plane.cluster_certificate_authority_data)
 
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
@@ -46,8 +45,8 @@ provider "kubernetes" {
 
 provider "helm" {
   kubernetes {
-    host                   = module.eks.cluster_endpoint
-    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+    host                   = module.control_plane.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.control_plane.cluster_certificate_authority_data)
 
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
